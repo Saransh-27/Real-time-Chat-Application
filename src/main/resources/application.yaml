@@ -1,0 +1,24 @@
+spring:
+  config:
+    import: optional:file:.env[.properties]
+  application:
+    name: ChatApp
+
+  mongodb:
+    uri: ${MONGO_URI}
+    database: ChatApp
+    auto-index-creation: true
+
+# application-dev.yml
+  logging:
+    level:
+      root: INFO
+      com.project.Ums: DEBUG
+      org.springframework.web: DEBUG
+      org.springframework.web.servlet.DispatcherServlet: DEBUG
+      org.springframework.data.mongodb.core.MongoTemplate: DEBUG
+      org.mongodb.driver: INFO
+
+
+frontend:
+  url: ${FRONTEND_URL}
