@@ -16,4 +16,8 @@ public class Message {
     private String sender;
     private String content;
     private LocalDateTime timestamp;
+    // Optional file attachment (data URL or base64) and original filename
+    private String senderProfilePhoto;
+    private String attachmentFileName;
+    private String attachmentData;
 }

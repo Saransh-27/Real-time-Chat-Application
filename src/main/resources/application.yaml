@@ -9,16 +9,25 @@ spring:
     database: ChatApp
     auto-index-creation: true
 
-# application-dev.yml
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
   logging:
     level:
       root: INFO
-      com.project.Ums: DEBUG
+      com.project.ChatApp: DEBUG
       org.springframework.web: DEBUG
       org.springframework.web.servlet.DispatcherServlet: DEBUG
       org.springframework.data.mongodb.core.MongoTemplate: DEBUG
       org.mongodb.driver: INFO
-
+      org.springframework.security: DEBUG
 
 frontend:
   url: ${FRONTEND_URL}
+
+
+jwt:
+  secret: ${JWT_SECRET}
+  expiration: ${JWT_EXPIRATION_MS}
