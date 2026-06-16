@@ -7,6 +7,8 @@ import { motion } from 'framer-motion';
 import { MessageCircle, ArrowRight, Eye, EyeOff, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import ThemeToggle from '@/components/ThemeToggle';
+import toast from 'react-hot-toast';
+import { getErrorMessage } from '@/lib/errorHandler';
 
 export default function LoginPage() {
     const [userName, setUserName] = useState('');
@@ -27,10 +29,12 @@ export default function LoginPage() {
         setIsLoading(true);
         try {
             await login({ userName: userName.trim(), password });
+            toast.success('Signed in successfully');
             router.push('/dashboard');
         } catch (err: unknown) {
-            const msg = (err as { response?: { data?: string } })?.response?.data;
-            setError(typeof msg === 'string' ? msg : 'Invalid credentials. Please try again.');
+            const errorMsg = getErrorMessage(err, 'Invalid username or password');
+            setError(errorMsg);
+            toast.error(errorMsg);
         } finally {
             setIsLoading(false);
         }

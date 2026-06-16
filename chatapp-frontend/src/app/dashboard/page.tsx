@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import ThemeToggle from '@/components/ThemeToggle';
+import toast from 'react-hot-toast';
+import { getErrorMessage } from '@/lib/errorHandler';
 
 export default function DashboardPage() {
     const { user, token, isLoading: authLoading, logout } = useAuth();
@@ -55,11 +57,13 @@ export default function DashboardPage() {
         try {
             await roomService.createRoom(newRoomId.trim());
             await roomService.joinRoom(newRoomId.trim());
+            toast.success(`Room "${newRoomId.trim()}" created successfully!`);
             setShowCreateModal(false); setNewRoomId('');
             fetchRooms();
         } catch (err: unknown) {
-            const msg = (err as { response?: { data?: string } })?.response?.data;
-            setModalError(typeof msg === 'string' ? msg : 'Failed to create room');
+            const errorMsg = getErrorMessage(err, 'Failed to create room');
+            setModalError(errorMsg);
+            toast.error(errorMsg);
         } finally { setModalLoading(false); }
     };
 
@@ -68,11 +72,13 @@ export default function DashboardPage() {
         setModalError(''); setModalLoading(true);
         try {
             await roomService.joinRoom(joinRoomId.trim());
+            toast.success(`Joined room "${joinRoomId.trim()}" successfully!`);
             setShowJoinModal(false); setJoinRoomId('');
             fetchRooms();
         } catch (err: unknown) {
-            const msg = (err as { response?: { data?: string } })?.response?.data;
-            setModalError(typeof msg === 'string' ? msg : 'Failed to join room');
+            const errorMsg = getErrorMessage(err, 'Failed to join room');
+            setModalError(errorMsg);
+            toast.error(errorMsg);
         } finally { setModalLoading(false); }
     };
 

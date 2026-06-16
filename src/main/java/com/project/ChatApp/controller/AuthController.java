@@ -53,7 +53,7 @@ public class AuthController {
 
             if (!dto.getUserName().isBlank()) {
                 user = userRepository.findByUserName(dto.getUserName().toLowerCase())
-                        .orElse(null);
+                        .orElseThrow(() -> new IllegalArgumentException("Username not found"));
             }
 
             // If still not found, throw exception

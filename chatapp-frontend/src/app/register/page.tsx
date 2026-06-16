@@ -7,6 +7,8 @@ import { motion } from 'framer-motion';
 import { MessageCircle, ArrowRight, Eye, EyeOff, Loader2, CheckCircle2 } from 'lucide-react';
 import Link from 'next/link';
 import ThemeToggle from '@/components/ThemeToggle';
+import toast from 'react-hot-toast';
+import { getErrorMessage } from '@/lib/errorHandler';
 
 export default function RegisterPage() {
     const [userName, setUserName] = useState('');
@@ -38,11 +40,14 @@ export default function RegisterPage() {
         setIsLoading(true);
         try {
             const msg = await register({ userName: userName.trim(), password });
-            setSuccess(msg || 'Account created! Redirecting to login...');
+            const successMsg = msg || 'Account created! Redirecting to login...';
+            setSuccess(successMsg);
+            toast.success(successMsg);
             setTimeout(() => router.push('/login'), 1500);
         } catch (err: unknown) {
-            const msg = (err as { response?: { data?: string } })?.response?.data;
-            setError(typeof msg === 'string' ? msg : 'Registration failed. Please try again.');
+            const errorMsg = getErrorMessage(err, 'Registration failed - please try again with a different username');
+            setError(errorMsg);
+            toast.error(errorMsg);
         } finally {
             setIsLoading(false);
         }

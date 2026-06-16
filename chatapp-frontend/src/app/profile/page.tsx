@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import ThemeToggle from '@/components/ThemeToggle';
+import toast from 'react-hot-toast';
+import { getErrorMessage } from '@/lib/errorHandler';
 
 export default function ProfilePage() {
     const { user, token, isLoading: authLoading, updateUser, logout } = useAuth();
@@ -45,6 +47,7 @@ export default function ProfilePage() {
 
         if (file.size > 2 * 1024 * 1024) {
             setError('Image must be under 2MB');
+            toast.error('Image must be under 2MB');
             return;
         }
 
@@ -59,17 +62,22 @@ export default function ProfilePage() {
                 try {
                     const updatedUser = await userService.updateProfilePhoto(dataUrl);
                     updateUser(updatedUser);
+                    toast.success('Profile photo updated!');
                     setSuccess('Profile photo updated!');
                     setTimeout(() => setSuccess(''), 3000);
-                } catch {
-                    setError('Failed to upload photo');
+                } catch (err: unknown) {
+                    const errorMsg = getErrorMessage(err, 'Failed to upload photo');
+                    setError(errorMsg);
+                    toast.error(errorMsg);
                 } finally {
                     setIsUploading(false);
                 }
             };
             reader.readAsDataURL(file);
-        } catch {
-            setError('Failed to read file');
+        } catch (err: unknown) {
+            const errorMsg = getErrorMessage(err, 'Failed to read file');
+            setError(errorMsg);
+            toast.error(errorMsg);
             setIsUploading(false);
         }
     };
@@ -81,11 +89,14 @@ export default function ProfilePage() {
         try {
             const updatedUser = await userService.updateUsername(newUserName.trim());
             updateUser(updatedUser);
+            toast.success('Username updated successfully!');
             setShowUserModal(false);
             setSuccess('Username updated successfully!');
             setTimeout(() => setSuccess(''), 3000);
         } catch (err: any) {
-            setError(err.response?.data || 'Failed to update username');
+            const errorMsg = getErrorMessage(err, 'Failed to update username');
+            setError(errorMsg);
+            toast.error(errorMsg);
         } finally {
             setUserModalLoading(false);
         }
@@ -94,18 +105,22 @@ export default function ProfilePage() {
     const handleChangePassword = async () => {
         if (passData.new !== passData.confirm) {
             setError('Passwords do not match');
+            toast.error('Passwords do not match');
             return;
         }
         setPassModalLoading(true);
         setError('');
         try {
             await userService.updatePassword(passData.current, passData.new);
+            toast.success('Password changed successfully!');
             setShowPassModal(false);
             setPassData({ current: '', new: '', confirm: '' });
             setSuccess('Password changed successfully!');
             setTimeout(() => setSuccess(''), 3000);
         } catch (err: any) {
-            setError(err.response?.data || 'Failed to change password');
+            const errorMsg = getErrorMessage(err, 'Failed to change password');
+            setError(errorMsg);
+            toast.error(errorMsg);
         } finally {
             setPassModalLoading(false);
         }
@@ -115,10 +130,15 @@ export default function ProfilePage() {
         setDeleteModalLoading(true);
         try {
             await userService.deleteAccount();
-            logout();
-            router.push('/login');
+            toast.success('Account deleted successfully');
+            setTimeout(() => {
+                logout();
+                router.push('/login');
+            }, 1000);
         } catch (err: any) {
-            setError(err.response?.data || 'Failed to delete account');
+            const errorMsg = getErrorMessage(err, 'Failed to delete account');
+            setError(errorMsg);
+            toast.error(errorMsg);
             setShowDeleteModal(false);
         } finally {
             setDeleteModalLoading(false);
