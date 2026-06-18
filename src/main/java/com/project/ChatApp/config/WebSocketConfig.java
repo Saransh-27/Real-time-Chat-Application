@@ -12,7 +12,7 @@ import org.springframework.web.socket.config.annotation.WebSocketTransportRegist
 @Configuration
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
-    @Value("${frontend.url:http://localhost:3000}")
+    @Value("${frontend.url}")
     private String frontendUrl;
 
     @Override

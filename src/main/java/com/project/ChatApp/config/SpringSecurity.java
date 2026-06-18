@@ -29,7 +29,7 @@ public class SpringSecurity {
     private final UserDetailServiceImpl userDetailsService;
     private final JwtFilter jwtFilter;
 
-    @Value("${FRONTEND_URL:http://localhost:5173}")
+    @Value("${FRONTEND_URL}")
     private String frontendUrl;
 
     @Bean
