@@ -14,11 +14,9 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -87,6 +85,7 @@ public class AuthController {
             User user = new User();
             user.setUserName(userName);
             user.setPassword(passwordEncoder.encode(request.getPassword()));
+            user.setProvider("local");
             userRepository.save(user);
             log.info("new User with UserName : {} is created", user.getUserName());
             return ResponseEntity.status(HttpStatus.CREATED).body("User registered successfully !!! Now you can login");
@@ -94,5 +93,14 @@ public class AuthController {
             log.error("Exception occurred while register ", e);
             throw e; // Let global exception handler handle it
         }
+    }
+
+    @GetMapping("/oauth2/urls")
+    public ResponseEntity<?> getOAuth2LoginUrls() {
+        Map<String, String> urls = Map.of(
+                "google", "/oauth2/authorization/google",
+                "github", "/oauth2/authorization/github"
+        );
+        return ResponseEntity.ok(urls);
     }
 }
