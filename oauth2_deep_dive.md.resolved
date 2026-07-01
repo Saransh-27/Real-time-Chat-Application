@@ -1,0 +1,530 @@
+# 🧠 OAuth 2.0 Deep Dive — Understanding Every Line of Code
+
+## Table of Contents
+1. [The Big Picture — What is OAuth 2.0?](#1-the-big-picture)
+2. [The Complete Flow — Step by Step](#2-the-complete-flow)
+3. [File-by-File Code Breakdown](#3-file-by-file-breakdown)
+4. [How the Files Connect to Each Other](#4-how-the-files-connect)
+5. [What Happens to Your Existing Auth?](#5-existing-auth)
+6. [Common Questions](#6-common-questions)
+
+---
+
+## 1. The Big Picture — What is OAuth 2.0?
+
+Think of OAuth 2.0 like a **hotel key card system**:
+
+- You (the user) go to the **front desk** (Google/GitHub login page)
+- You prove your identity to the front desk (enter your Google/GitHub credentials)
+- The front desk gives you a **key card** (authorization code)
+- You bring the key card back to the **hotel system** (your Spring Boot backend)
+- The hotel system **verifies the key card** with the front desk (exchanges the code for an access token)
+- The hotel system **gets your room details** (fetches your profile info from Google/GitHub)
+- The hotel system creates **its own key** for you (a JWT token) so you don't need to go to the front desk again
+
+> [!IMPORTANT]
+> Your app **never sees** the user's Google/GitHub password. Google/GitHub only give you a token to read the user's profile. That's the whole point of OAuth — **delegated authorization**.
+
+---
+
+## 2. The Complete Flow — Step by Step
+
+Here's exactly what happens when a user clicks "Login with Google":
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant FE as Frontend :3000
+    participant BE as Spring Boot :8080
+    participant G as Google
+
+    Note over B: Step 1: User clicks "Login with Google"
+    B->>BE: GET /oauth2/authorization/google
+
+    Note over BE: Step 2: Spring Security generates Google login URL
+    BE->>B: 302 Redirect to accounts.google.com/o/oauth2/auth?client_id=xxx&redirect_uri=xxx&scope=openid+profile+email
+
+    Note over B: Step 3: Google shows login page
+    B->>G: User enters Google credentials
+    G->>G: Google verifies password
+
+    Note over G: Step 4: Google redirects back with authorization code
+    G->>B: 302 Redirect to localhost:8080/login/oauth2/code/google?code=AUTHORIZATION_CODE
+
+    Note over BE: Step 5: Spring Security intercepts this callback
+    B->>BE: GET /login/oauth2/code/google?code=AUTHORIZATION_CODE
+
+    Note over BE: Step 6: Spring exchanges code for access token (server-to-server)
+    BE->>G: POST https://oauth2.googleapis.com/token (with code + client_secret)
+    G->>BE: Returns access_token
+
+    Note over BE: Step 7: Spring uses access token to get user info
+    BE->>G: GET https://www.googleapis.com/oauth2/v3/userinfo (with access_token)
+    G->>BE: Returns {sub, email, name, picture}
+
+    Note over BE: Step 8: CustomOAuth2UserService.loadUser() is called
+    Note over BE: → Creates or finds user in MongoDB
+    Note over BE: Step 9: OAuth2SuccessHandler.onAuthenticationSuccess() is called
+    Note over BE: → Generates JWT token
+
+    Note over BE: Step 10: Redirect to frontend with JWT
+    BE->>B: 302 Redirect to localhost:3000/oauth2/callback?token=JWT&username=xxx
+
+    Note over FE: Step 11: Frontend stores JWT
+    B->>FE: Page loads, extracts token from URL
+    FE->>FE: localStorage.setItem("token", JWT)
+
+    Note over B: Step 12: All future API calls use JWT (same as before)
+    FE->>BE: GET /api/rooms (Authorization: Bearer JWT)
+```
+
+### The key thing to understand:
+- **Steps 2-7 are handled automatically by Spring Security** — you don't write any code for this
+- **Step 8** is your [CustomOAuth2UserService](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/service/CustomOAuth2UserService.java#16-91) — where YOU decide what to do with the user info
+- **Step 9** is your [OAuth2SuccessHandler](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/config/OAuth2SuccessHandler.java#21-89) — where YOU generate the JWT and redirect
+- **Steps 1 and 10-12** happen on the frontend
+
+---
+
+## 3. File-by-File Code Breakdown
+
+### 📄 [application.yaml](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/resources/application.yaml) — The Configuration
+
+```yaml
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          google:                                    # ← Registration ID (used in URLs)
+            client-id: ${GOOGLE_CLIENT_ID}           # ← From Google Cloud Console
+            client-secret: ${GOOGLE_CLIENT_SECRET}   # ← From Google Cloud Console
+            scope:                                   # ← What data we want to read
+              - openid                               # ← Standard OpenID Connect (identity)
+              - profile                              # ← User's name, picture
+              - email                                # ← User's email
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            #              ↑ resolves to: http://localhost:8080/login/oauth2/code/google
+            client-name: Google                      # ← Display name (optional)
+
+          github:
+            client-id: ${GITHUB_CLIENT_ID}
+            client-secret: ${GITHUB_CLIENT_SECRET}
+            scope:
+              - read:user                            # ← Read user profile
+              - user:email                           # ← Read user email
+```
+
+**What does each field mean?**
+
+| Field | Meaning |
+|-------|---------|
+| `registration.google` | The name "google" becomes the **registration ID**. Spring uses this to auto-configure Google's OAuth2 endpoints (authorization URL, token URL, user info URL). If you name it `google`, Spring already knows all the URLs. |
+| `client-id` | Your app's public identifier — Google/GitHub gives this when you register your app |
+| `client-secret` | Your app's private key — only the backend knows this, **never** sent to the browser |
+| `scope` | What permissions you're requesting. `openid` = identity, `profile` = name/picture, `email` = email address |
+| `redirect-uri` | Where Google should send the user after they login. `{baseUrl}` resolves to `http://localhost:8080`. `{registrationId}` resolves to `google` |
+
+> [!TIP]
+> Spring Boot has **built-in knowledge** of Google and GitHub's OAuth2 URLs. When you name the registration `google`, it automatically knows to use `https://accounts.google.com/o/oauth2/v2/auth` for authorization and `https://oauth2.googleapis.com/token` for token exchange. You don't need to configure these URLs manually!
+
+---
+
+### 📄 [User.java](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/entity/User.java) — The Entity (What's stored in MongoDB)
+
+```java
+@Document(collection = "users")
+public class User {
+    @Id
+    private String id;              // MongoDB auto-generated ID
+
+    @Indexed(unique = true)
+    private String userName;        // "saransh" — used for login and JWT
+
+    private String password;        // Bcrypt hash — NULL for OAuth2 users!!
+
+    @Indexed(unique = true, sparse = true)
+    private String email;           // "saransh@gmail.com" — from OAuth2 provider
+
+    private String provider;        // "local" | "google" | "github"
+    private String providerId;      // "10987654321" — unique ID from provider
+    private String avatarUrl;       // Profile picture URL from provider
+
+    @DBRef
+    private List<Room> rooms;       // Chat rooms the user belongs to
+    private String profilePhoto;    // Custom uploaded photo
+}
+```
+
+**Why these new fields?**
+
+| Field | Why | Example Value |
+|-------|-----|---------------|
+| `email` | To link OAuth2 accounts with existing local accounts. If someone registered with username "saransh" and email "saransh@gmail.com", then logs in with Google using the same email, we can link them. | `"saransh@gmail.com"` |
+| `provider` | To know HOW the user signed up. A user with provider "google" has no password — they can only login via Google. | `"local"`, `"google"`, `"github"` |
+| `providerId` | Google/GitHub have their own unique ID for each user. We store it so that next time they login, we can find them by `provider + providerId`. | Google: `"108234567890"`, GitHub: `"12345678"` |
+| `avatarUrl` | Google/GitHub give us the user's profile picture URL. We save it so we can show it in the chat. | `"https://lh3.googleusercontent.com/..."` |
+
+**What does `sparse = true` mean on the email index?**
+```java
+@Indexed(unique = true, sparse = true)
+private String email;
+```
+- `unique = true` → No two users can have the same email
+- `sparse = true` → Users with `email = null` are **excluded** from the index. This is critical because your existing users don't have an email field — without `sparse`, MongoDB would think all null-email users have the same email and throw a duplicate key error!
+
+---
+
+### 📄 [UserRepository.java](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/repository/UserRepository.java) — Database Queries
+
+```java
+public interface UserRepository extends MongoRepository<User, String> {
+    Optional<User> findByUserName(String userName);                          // Existing — for local login
+    Optional<User> findByEmail(String email);                               // NEW — find by email
+    Optional<User> findByProviderAndProviderId(String provider, String id); // NEW — find by OAuth provider
+    Room findRoomByUserName(String userName);                               // Existing
+}
+```
+
+**When is each query used?**
+- [findByUserName()](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/repository/UserRepository.java#12-13) → Local login (`/api/auth/login`)
+- [findByEmail()](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/repository/UserRepository.java#13-14) → In [CustomOAuth2UserService](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/service/CustomOAuth2UserService.java#16-91) to check if an OAuth2 user already has a local account with the same email
+- [findByProviderAndProviderId()](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/repository/UserRepository.java#14-15) → In [CustomOAuth2UserService](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/service/CustomOAuth2UserService.java#16-91) to find returning OAuth2 users (e.g., user logged in with Google before → find them by `provider=google` + `providerId=their-google-id`)
+
+---
+
+### 📄 [SpringSecurity.java](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/config/SpringSecurity.java) — The Security Configuration (The Brain)
+
+This is the **central configuration** that ties everything together. Let me explain each section:
+
+```java
+// These are the 4 dependencies injected:
+private final UserDetailServiceImpl userDetailsService;      // For local username/password auth
+private final JwtFilter jwtFilter;                           // For JWT token validation on API calls
+private final CustomOAuth2UserService customOAuth2UserService; // NEW — for processing OAuth2 users
+private final OAuth2SuccessHandler oAuth2SuccessHandler;       // NEW — for post-OAuth2 JWT generation
+```
+
+#### Session Management Change
+```java
+// BEFORE (your original):
+.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+
+// AFTER:
+.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
+```
+
+**Why?** OAuth2 login is a **multi-step process** (redirect to Google → user logs in → Google redirects back). Spring needs to temporarily store state between these steps using an HTTP session. `STATELESS` would break this. `IF_REQUIRED` means:
+- Sessions are created **only when needed** (during OAuth2 flow)
+- Your JWT-based API calls still work statelessly — the JwtFilter doesn't use sessions
+
+#### OAuth2 Endpoint Permissions
+```java
+.requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()
+```
+These two URL patterns must be public:
+- `/oauth2/authorization/google` — Where the browser goes to START the OAuth2 flow
+- `/login/oauth2/code/google` — Where Google REDIRECTS BACK with the authorization code
+
+If these required authentication, the OAuth2 flow would fail because the user isn't authenticated yet (that's the whole point — they're trying to login!).
+
+#### The OAuth2 Login Block
+```java
+.oauth2Login(oauth2 -> oauth2
+    .userInfoEndpoint(userInfo -> userInfo
+        .userService(customOAuth2UserService)    // ← "Use MY service to process user info"
+    )
+    .successHandler(oAuth2SuccessHandler)        // ← "After success, call MY handler"
+    .failureUrl(frontendUrl + "/login?error=oauth2_failed")  // ← "On failure, redirect here"
+)
+```
+
+This tells Spring Security:
+1. **When you get user info from Google/GitHub**, don't just use the default handler — call `customOAuth2UserService.loadUser()` so I can save the user to MongoDB
+2. **When OAuth2 login succeeds**, don't show a default success page — call `oAuth2SuccessHandler.onAuthenticationSuccess()` so I can generate a JWT and redirect to my frontend
+3. **When OAuth2 login fails** (user denies consent, invalid credentials, etc.), redirect to the frontend's login page with an error message
+
+#### The JWT Filter (unchanged)
+```java
+.addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
+```
+This is your existing JWT filter. It runs on **every request** and checks for a `Bearer` token in the `Authorization` header. OAuth2 login doesn't use this — it's for API calls AFTER the user is authenticated.
+
+---
+
+### 📄 [CustomOAuth2UserService.java](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/service/CustomOAuth2UserService.java) — Processing OAuth2 User Info (Step 8 in the flow)
+
+This class is called **automatically by Spring** after it fetches user info from Google/GitHub. Let's trace through it:
+
+```java
+public class CustomOAuth2UserService extends DefaultOAuth2UserService {
+```
+We extend `DefaultOAuth2UserService` — this is a Spring class that already knows how to make the API call to Google/GitHub to get user info. We just `super.loadUser()` to get the data, then do our custom processing.
+
+#### Step 8a: Get Raw User Data
+```java
+OAuth2User oAuth2User = super.loadUser(userRequest);
+// ↑ This calls Google/GitHub API and returns the user's profile data
+
+String registrationId = userRequest.getClientRegistration().getRegistrationId();
+// ↑ This will be "google" or "github" — matches the name in application.yaml
+
+Map<String, Object> attributes = oAuth2User.getAttributes();
+// ↑ The raw JSON response from Google/GitHub as a Map
+```
+
+#### Step 8b: Extract Provider-Specific Fields
+Google and GitHub return user data in **different JSON formats**, so we need to handle each separately:
+
+```java
+if ("google".equals(registrationId)) {
+    providerId = (String) attributes.get("sub");        // Google's unique user ID
+    email = (String) attributes.get("email");           // User's email
+    name = (String) attributes.get("name");             // "Saransh Dhiman"
+    avatarUrl = (String) attributes.get("picture");     // Profile pic URL
+}
+```
+Google returns something like:
+```json
+{ "sub": "108234567890", "email": "saransh@gmail.com", "name": "Saransh Dhiman", "picture": "https://..." }
+```
+
+```java
+else if ("github".equals(registrationId)) {
+    providerId = String.valueOf(attributes.get("id"));  // GitHub's unique user ID (integer!)
+    email = (String) attributes.get("email");           // Can be null on GitHub!
+    name = (String) attributes.get("login");            // GitHub username: "Saransh-27"
+    avatarUrl = (String) attributes.get("avatar_url");  // Profile pic URL
+}
+```
+GitHub returns something like:
+```json
+{ "id": 12345678, "login": "Saransh-27", "email": null, "avatar_url": "https://..." }
+```
+
+> [!NOTE]
+> GitHub's [id](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/utils/JwtUtil.java#78-90) is an **Integer**, not a String, which is why we use `String.valueOf()`. Also, GitHub email can be `null` if the user hasn't made their email public — but we requested the `user:email` scope so it should usually be available.
+
+#### Step 8c: Find or Create User in MongoDB
+```java
+// First try: find by provider + providerId (most reliable for returning users)
+Optional<User> existingUser = userRepository.findByProviderAndProviderId(registrationId, providerId);
+
+// Second try: find by email (to link with existing local accounts)
+if (existingUser.isEmpty() && email != null) {
+    existingUser = userRepository.findByEmail(email);
+}
+```
+
+**The lookup strategy is:**
+1. First check: "Has this Google/GitHub user logged in before?" → [findByProviderAndProviderId("google", "108234567890")](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/repository/UserRepository.java#14-15)
+2. If not found: "Does someone with this email already have a local account?" → [findByEmail("saransh@gmail.com")](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/repository/UserRepository.java#13-14)
+3. If neither found: "This is a brand new user" → Create one
+
+#### Step 8d: Handle Existing vs New User
+```java
+if (existingUser.isPresent()) {
+    user = existingUser.get();
+    user.setAvatarUrl(avatarUrl);           // Always update the avatar (it might change)
+    if (user.getProvider() == null) {
+        // This user had a local account → link their OAuth2 provider
+        user.setProvider(registrationId);
+        user.setProviderId(providerId);
+    }
+} else {
+    // Brand new user — create everything
+    user = new User();
+    user.setProvider(registrationId);
+    user.setProviderId(providerId);
+    user.setEmail(email);
+    user.setAvatarUrl(avatarUrl);
+
+    // Generate unique username from their name
+    String baseUsername = (name != null ? name : ...)
+            .toLowerCase().replaceAll("[^a-z0-9]", "");
+    // "Saransh Dhiman" → "saranshdhiman"
+    // If "saranshdhiman" is taken → try "saranshdhiman1", "saranshdhiman2", ...
+}
+userRepository.save(user);
+return oAuth2User;
+```
+
+> [!IMPORTANT]
+> We return `oAuth2User` (the Spring object), not our [User](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/entity/User.java#12-37) entity. Spring Security needs the OAuth2User object to continue its flow. Our [User](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/entity/User.java#12-37) entity was saved to MongoDB — the [OAuth2SuccessHandler](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/config/OAuth2SuccessHandler.java#21-89) will look it up later.
+
+---
+
+### 📄 [OAuth2SuccessHandler.java](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/config/OAuth2SuccessHandler.java) — Generating JWT After OAuth2 Login (Step 9)
+
+This is called **immediately after** `CustomOAuth2UserService.loadUser()` succeeds. Its job: generate a JWT token and redirect the user to the frontend.
+
+```java
+public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
+```
+We extend `SimpleUrlAuthenticationSuccessHandler` — a Spring class that handles "what to do after successful authentication". The default behavior would show a success page, but we override it to redirect with a JWT.
+
+#### Step 9a: Get the OAuth2 User's Attributes
+```java
+OAuth2User oAuth2User = (OAuth2User) authentication.getPrincipal();
+Map<String, Object> attributes = oAuth2User.getAttributes();
+```
+The [authentication](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/config/SpringSecurity.java#96-102) object is passed by Spring — it contains the same OAuth2User that was returned by `CustomOAuth2UserService.loadUser()`.
+
+#### Step 9b: Find Our User in MongoDB
+```java
+// Try email first
+String email = (String) attributes.get("email");
+if (email != null) {
+    user = userRepository.findByEmail(email).orElse(null);
+}
+
+// Fallback: try Google's "sub" field
+String googleSub = (String) attributes.get("sub");
+if (googleSub != null) {
+    user = userRepository.findByProviderAndProviderId("google", googleSub).orElse(null);
+}
+
+// Fallback: try GitHub's "id" field
+Object githubId = attributes.get("id");
+if (githubId != null) {
+    user = userRepository.findByProviderAndProviderId("github", String.valueOf(githubId)).orElse(null);
+}
+```
+
+**Why do we need to find the user AGAIN?** Because [CustomOAuth2UserService](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/service/CustomOAuth2UserService.java#16-91) returned a Spring [OAuth2User](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/service/CustomOAuth2UserService.java#16-91) object (not our [User](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/entity/User.java#12-37) entity). We need our [User](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/entity/User.java#12-37) entity to get the `userName` for the JWT.
+
+#### Step 9c: Generate JWT and Redirect
+```java
+String token = jwtUtil.generateToken(user.getUserName());
+
+String redirectUrl = frontendUrl + "/oauth2/callback?token=" + token
+        + "&username=" + user.getUserName()
+        + "&userId=" + user.getId();
+
+getRedirectStrategy().sendRedirect(request, response, redirectUrl);
+```
+
+This generates a redirect like:
+```
+http://localhost:3000/oauth2/callback?token=eyJhbGciOiJIUzI1NiJ9...&username=saranshdhiman&userId=667abc123
+```
+
+The frontend catches this URL, extracts the token, stores it in localStorage, and the user is logged in! From this point on, everything works exactly like your existing JWT auth.
+
+---
+
+### 📄 [AuthController.java](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/controller/AuthController.java) — What Changed
+
+Two small additions:
+
+#### 1. `provider = "local"` on registration
+```java
+@PostMapping("/register")
+public ResponseEntity<?> register(@RequestBody LoginRequest request) {
+    User user = new User();
+    user.setUserName(userName);
+    user.setPassword(passwordEncoder.encode(request.getPassword()));
+    user.setProvider("local");  // ← NEW: marks this user as locally registered
+    userRepository.save(user);
+}
+```
+This distinguishes users who signed up with username/password from those who signed up via OAuth2.
+
+#### 2. OAuth2 URLs endpoint
+```java
+@GetMapping("/oauth2/urls")
+public ResponseEntity<?> getOAuth2LoginUrls() {
+    return ResponseEntity.ok(Map.of(
+        "google", "/oauth2/authorization/google",
+        "github", "/oauth2/authorization/github"
+    ));
+}
+```
+A convenience endpoint for the frontend to get the OAuth2 authorization URLs. The frontend can call this to dynamically know which providers are available.
+
+---
+
+## 4. How the Files Connect to Each Other
+
+```mermaid
+graph TB
+    subgraph "📝 Configuration"
+        YAML["application.yaml<br/>OAuth2 client-id, client-secret, scopes"]
+        ENV[".env<br/>Actual secret values"]
+    end
+
+    subgraph "🔒 Security Layer"
+        SS["SpringSecurity.java<br/>The BRAIN — wires everything together"]
+        JF["JwtFilter.java<br/>Validates JWT on API requests"]
+    end
+
+    subgraph "🔄 OAuth2 Flow (NEW)"
+        COS["CustomOAuth2UserService.java<br/>① Receives user info from Google/GitHub<br/>② Creates/finds user in MongoDB"]
+        OSH["OAuth2SuccessHandler.java<br/>③ Generates JWT token<br/>④ Redirects to frontend"]
+    end
+
+    subgraph "📦 Data Layer"
+        USER["User.java<br/>Entity with provider fields"]
+        REPO["UserRepository.java<br/>MongoDB queries"]
+    end
+
+    subgraph "🌐 API Layer"
+        AC["AuthController.java<br/>/api/auth/login (local)<br/>/api/auth/register (local)<br/>/api/auth/oauth2/urls (new)"]
+    end
+
+    ENV -->|"provides values"| YAML
+    YAML -->|"configures"| SS
+    SS -->|"registers"| COS
+    SS -->|"registers"| OSH
+    SS -->|"registers"| JF
+    COS -->|"uses"| REPO
+    OSH -->|"uses"| REPO
+    OSH -->|"uses JwtUtil to generate token"| JF
+    REPO -->|"queries"| USER
+    AC -->|"uses"| REPO
+
+    style COS fill:#4CAF50,color:#fff
+    style OSH fill:#2196F3,color:#fff
+    style SS fill:#FF9800,color:#fff
+```
+
+### Execution Order During OAuth2 Login:
+1. **[SpringSecurity](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/config/SpringSecurity.java#25-108)** intercepts `/oauth2/authorization/google` → redirects to Google
+2. Google redirects back to `/login/oauth2/code/google` → **[SpringSecurity](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/config/SpringSecurity.java#25-108)** intercepts again
+3. Spring exchanges the code for an access token (automatic)
+4. Spring calls **`CustomOAuth2UserService.loadUser()`** → creates/finds user in **MongoDB** via **[UserRepository](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/repository/UserRepository.java#10-17)**
+5. Spring calls **`OAuth2SuccessHandler.onAuthenticationSuccess()`** → generates JWT via **[JwtUtil](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/utils/JwtUtil.java#15-92)** → redirects to frontend
+
+---
+
+## 5. What Happens to Your Existing Auth?
+
+**Nothing breaks!** Here's why both auth flows coexist:
+
+| Scenario | What Happens |
+|----------|-------------|
+| User does `POST /api/auth/login` with username/password | `AuthController.login()` → validates credentials → generates JWT → returns it. Same as before. |
+| User does `POST /api/auth/register` | `AuthController.register()` → creates user with `provider="local"` → same as before. |
+| User clicks "Login with Google" | Browser → `/oauth2/authorization/google` → Google → callback → [CustomOAuth2UserService](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/service/CustomOAuth2UserService.java#16-91) → [OAuth2SuccessHandler](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/config/OAuth2SuccessHandler.java#21-89) → redirect with JWT |
+| User makes API call with `Authorization: Bearer JWT` | [JwtFilter](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/filter/JwtFilter.java#21-56) validates the JWT. Doesn't matter HOW the JWT was generated (local or OAuth2) — a JWT is a JWT. |
+
+The two paths **converge** at the JWT level. After authentication (whether local or OAuth2), both paths produce a JWT token, and all subsequent API calls use the same [JwtFilter](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/filter/JwtFilter.java#21-56) to validate it.
+
+---
+
+## 6. Common Questions
+
+### Q: Why do OAuth2 users have `password = null`?
+OAuth2 users never set a password — they authenticate through Google/GitHub. Their [password](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/config/SpringSecurity.java#103-107) field in MongoDB is `null`. This means they can **only** login via OAuth2, not via the local `/api/auth/login` endpoint.
+
+### Q: Can a user link both Google AND local login?
+Yes! If a user registers locally with email "saransh@gmail.com", and later clicks "Login with Google" with the same email, [CustomOAuth2UserService](file:///c:/Users/HP/Desktop/Springboot/ChatApp/src/main/java/com/project/ChatApp/service/CustomOAuth2UserService.java#16-91) will find the existing user by email and link the Google provider. After that, they can login both ways (though they'd need identical usernames).
+
+### Q: Why `IF_REQUIRED` instead of `STATELESS` for sessions?
+OAuth2 is a **redirect-based flow**. When Spring redirects you to Google, it needs to remember "this user is in the middle of an OAuth2 login" so that when Google redirects back, Spring knows what to do. This state is stored in an HTTP session. `STATELESS` would delete this session between requests, breaking the flow.
+
+### Q: Why not send the JWT as a cookie instead of a URL parameter?
+URL parameters are simpler for cross-origin scenarios (backend on `:8080`, frontend on `:3000`). Cookies would need `SameSite=None` and `Secure` flags, plus HTTPS. For production, cookies are more secure — but URL params work fine for development.
+
+### Q: What if GitHub doesn't return an email?
+If the GitHub user's email is private, `email` will be `null`. The user will still be created — they're identified by `provider=github` + `providerId=their-github-id`. The username is generated from their GitHub login name instead.
