@@ -21,6 +21,15 @@ public class User {
     @Indexed(unique = true)
     private String userName;
     private String password;
+
+    @Indexed(unique = true, sparse = true)
+    private String email;
+
+    // OAuth2 fields
+    private String provider;    // "local", "google", "github"
+    private String providerId;  // The ID from the OAuth2 provider
+    private String avatarUrl;   // Profile picture URL from OAuth2 provider
+
     @DBRef
     private List<Room> rooms = new ArrayList<>();
     private String profilePhoto;
