@@ -1,6 +1,8 @@
 package com.project.ChatApp.config;
 
 import com.project.ChatApp.filter.JwtFilter;
+import com.project.ChatApp.service.CustomOidcUserService;
+import com.project.ChatApp.service.CustomOAuth2UserService;
 import com.project.ChatApp.service.UserDetailServiceImpl;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -28,6 +30,9 @@ public class SpringSecurity {
 
     private final UserDetailServiceImpl userDetailsService;
     private final JwtFilter jwtFilter;
+    private final CustomOAuth2UserService customOAuth2UserService;
+    private final CustomOidcUserService customOidcUserService;
+    private final OAuth2SuccessHandler oAuth2SuccessHandler;
 
     @Value("${FRONTEND_URL}")
     private String frontendUrl;
@@ -39,7 +44,7 @@ public class SpringSecurity {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session ->
-                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                        session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
                 )
                 .authorizeHttpRequests(auth -> auth
                         // Public endpoints - authentication NOT required
@@ -47,7 +52,10 @@ public class SpringSecurity {
                         .requestMatchers("/health").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
 
-                        // WebSocket endpoint - allow unauthenticated connections (can add auth to message handlers)
+                        // OAuth2 endpoints - must be public
+                        .requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()
+
+                        // WebSocket endpoint
                         .requestMatchers("/chat", "/chat/**").permitAll()
 
                         // Protected endpoints - authentication REQUIRED
@@ -57,8 +65,18 @@ public class SpringSecurity {
                         // All other requests require authentication
                         .anyRequest().authenticated()
                 )
-                // authentication provider configured on AuthenticationManager
+                // OAuth2 Login configuration
+                .oauth2Login(oauth2 -> oauth2
+                        .userInfoEndpoint(userInfo -> userInfo
+                                .userService(customOAuth2UserService)
+                                .oidcUserService(customOidcUserService)
+                        )
+                        .successHandler(oAuth2SuccessHandler)
+                        .failureUrl(frontendUrl + "/login?error=oauth2_failed")
+                )
+                // JWT filter for API requests
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
+
         return http.build();
     }
 
