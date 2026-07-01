@@ -2,6 +2,10 @@ export interface User {
   id: string;
   userName: string;
   password?: string;
+  email?: string | null;
+  provider?: string | null;       // "local" | "google" | "github"
+  providerId?: string | null;
+  avatarUrl?: string | null;
   rooms: Room[];
   profilePhoto: string | null;
 }

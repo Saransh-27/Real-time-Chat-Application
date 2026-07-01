@@ -5,12 +5,16 @@ import type { User } from '@/lib/types';
 import { authService, userService } from '@/lib/services';
 import type { LoginRequest } from '@/lib/types';
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+
 interface AuthContextType {
     user: User | null;
     token: string | null;
     isLoading: boolean;
     login: (data: LoginRequest) => Promise<void>;
     register: (data: LoginRequest) => Promise<string>;
+    loginWithOAuth2: (provider: 'google' | 'github') => void;
+    handleOAuth2Callback: (token: string, username: string, userId: string) => Promise<void>;
     logout: () => void;
     refreshUser: () => Promise<void>;
     updateUser: (user: User) => void;
@@ -47,6 +51,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return authService.register(data);
     }, []);
 
+    // Redirect to backend OAuth2 authorization endpoint
+    const loginWithOAuth2 = useCallback((provider: 'google' | 'github') => {
+        window.location.href = `${API_BASE_URL}/oauth2/authorization/${provider}`;
+    }, []);
+
+    // Handle the OAuth2 callback — store JWT and fetch full user data
+    const handleOAuth2Callback = useCallback(async (jwtToken: string, username: string, userId: string) => {
+        // Store the token first so API calls work
+        localStorage.setItem('token', jwtToken);
+        setToken(jwtToken);
+
+        try {
+            // Fetch full user data from the /api/user/me endpoint
+            const fullUser = await userService.getMe();
+            setUser(fullUser);
+            localStorage.setItem('user', JSON.stringify(fullUser));
+        } catch {
+            // Fallback: create a minimal user object from the URL params
+            const minimalUser: User = {
+                id: userId,
+                userName: username,
+                rooms: [],
+                profilePhoto: null,
+            };
+            setUser(minimalUser);
+            localStorage.setItem('user', JSON.stringify(minimalUser));
+        }
+    }, []);
+
     const logout = useCallback(() => {
         setToken(null);
         setUser(null);
@@ -68,7 +101,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     return (
-        <AuthContext.Provider value={{ user, token, isLoading, login, register, logout, refreshUser, updateUser }}>
+        <AuthContext.Provider value={{
+            user, token, isLoading,
+            login, register, loginWithOAuth2, handleOAuth2Callback,
+            logout, refreshUser, updateUser
+        }}>
             {children}
         </AuthContext.Provider>
     );
