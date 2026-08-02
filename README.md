@@ -1,3 +1,5 @@
+
+
 <div align="center">
   <h1>💬 Real-Time Chat Application</h1>
   <p>A full-stack, enterprise-grade real-time messaging platform built with Spring Boot and Next.js.</p>
@@ -13,8 +15,8 @@
 
 ## 🎥 Video Demonstration
 
-> **Note for Recruiters:** A full video walk-through of the application's features and architecture will be embedded here soon!
-*(Add your video link or GIF here later by replacing this text: `![App Demo](link_to_gif_or_video)`)*
+https://github.com/user-attachments/assets/97639b51-9f25-4bbc-81ba-bb12f660bf5b
+
 
 ---
 
