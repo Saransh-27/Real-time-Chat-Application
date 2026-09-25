@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { motion } from 'framer-motion';
-import { MessageCircle, ArrowRight, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { MessageCircle, ArrowRight, Eye, EyeOff, Loader2, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import ThemeToggle from '@/components/ThemeToggle';
 import toast from 'react-hot-toast';
@@ -35,7 +35,7 @@ function LoginPageContent() {
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [oauthLoading, setOauthLoading] = useState<string | null>(null);
-    const { login, loginWithOAuth2 } = useAuth();
+    const { login, loginWithOAuth2, loginDemo } = useAuth();
     const router = useRouter();
     const searchParams = useSearchParams();
 
@@ -78,6 +78,14 @@ function LoginPageContent() {
         setOauthLoading(provider);
         setError('');
         loginWithOAuth2(provider);
+    };
+
+    const handleDemoLogin = () => {
+        loginDemo();
+        toast.success('Welcome to Demo Mode!', {
+            icon: '✨',
+        });
+        router.push('/dashboard');
     };
 
     return (
@@ -282,6 +290,38 @@ function LoginPageContent() {
                             Create one
                         </Link>
                     </p>
+
+                    {/* Demo Mode Entry — Portfolio Showcase */}
+                    <div className="mt-6 relative">
+                        <div className="absolute inset-0 rounded-2xl opacity-60" style={{
+                            background: 'linear-gradient(90deg, rgba(124,154,130,0.25) 0%, rgba(139,115,175,0.25) 50%, rgba(124,154,130,0.25) 100%)',
+                            filter: 'blur(6px)',
+                        }} />
+                        <button
+                            id="demo-mode-btn"
+                            onClick={handleDemoLogin}
+                            className="relative w-full flex items-center justify-center gap-3 h-12 rounded-2xl transition-all duration-300 group active:scale-[0.98]"
+                            style={{
+                                background: 'var(--bg-card)',
+                                border: '1px solid rgba(124,154,130,0.3)',
+                                color: 'var(--text-primary)',
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.borderColor = 'rgba(124,154,130,0.6)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.borderColor = 'rgba(124,154,130,0.3)';
+                            }}
+                        >
+                            <div className="flex items-center gap-2">
+                                <Sparkles className="w-4 h-4" style={{ color: 'var(--accent-sage)' }} />
+                                <span className="text-xs font-extrabold tracking-wide">Explore Demo Mode</span>
+                            </div>
+                            <span className="text-[10px] font-medium" style={{ color: 'var(--text-tertiary)' }}>
+                                No login required
+                            </span>
+                        </button>
+                    </div>
                 </motion.div>
             </div>
         </div>

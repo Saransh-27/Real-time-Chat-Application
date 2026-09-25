@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { isDemoMode } from './demoMode';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ;
 
@@ -27,6 +28,11 @@ api.interceptors.response.use(
         // Log error details for debugging (only in console, not intrusive)
         if (error.response?.data) {
             console.debug('[API Error]', error.response.status, error.response.data);
+        }
+
+        // In demo mode, don't redirect on 401 or network errors
+        if (isDemoMode()) {
+            return Promise.reject(error);
         }
 
         if (error.response?.status === 401 && typeof window !== 'undefined') {

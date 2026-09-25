@@ -11,11 +11,12 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import ThemeToggle from '@/components/ThemeToggle';
+import DemoBanner from '@/components/DemoBanner';
 import toast from 'react-hot-toast';
 import { getErrorMessage } from '@/lib/errorHandler';
 
 export default function ProfilePage() {
-    const { user, token, isLoading: authLoading, updateUser, logout } = useAuth();
+    const { user, token, isLoading: authLoading, updateUser, logout, isDemoMode } = useAuth();
     const router = useRouter();
     const [isUploading, setIsUploading] = useState(false);
     const [success, setSuccess] = useState('');
@@ -36,7 +37,7 @@ export default function ProfilePage() {
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [deleteModalLoading, setDeleteModalLoading] = useState(false);
 
-    if (!authLoading && !token) {
+    if (!authLoading && !token && !isDemoMode) {
         router.replace('/login');
         return null;
     }
@@ -155,6 +156,9 @@ export default function ProfilePage() {
 
     return (
         <div className="min-h-screen pb-20" style={{ background: 'var(--bg-primary)' }}>
+            {/* Demo Mode Banner */}
+            <DemoBanner />
+
             {/* Header */}
             <header className="sticky top-0 z-40 glass-strong" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                 <div className="max-w-2xl mx-auto px-6 py-4 flex items-center justify-between">

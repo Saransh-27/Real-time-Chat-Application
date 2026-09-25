@@ -12,11 +12,12 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import ThemeToggle from '@/components/ThemeToggle';
+import DemoBanner from '@/components/DemoBanner';
 import toast from 'react-hot-toast';
 import { getErrorMessage } from '@/lib/errorHandler';
 
 export default function DashboardPage() {
-    const { user, token, isLoading: authLoading, logout } = useAuth();
+    const { user, token, isLoading: authLoading, logout, isDemoMode } = useAuth();
     const router = useRouter();
     const [rooms, setRooms] = useState<Room[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -29,13 +30,13 @@ export default function DashboardPage() {
     const [modalLoading, setModalLoading] = useState(false);
 
     useEffect(() => {
-        if (!authLoading && !token) {
+        if (!authLoading && !token && !isDemoMode) {
             router.replace('/login');
         }
-    }, [authLoading, token, router]);
+    }, [authLoading, token, isDemoMode, router]);
 
     const fetchRooms = useCallback(async () => {
-        if (!token) return;
+        if (!token && !isDemoMode) return;
         setIsLoading(true);
         try {
             const data = await roomService.getRooms();
@@ -45,7 +46,7 @@ export default function DashboardPage() {
         } finally {
             setIsLoading(false);
         }
-    }, [token]);
+    }, [token, isDemoMode]);
 
     useEffect(() => {
         fetchRooms();
@@ -96,6 +97,9 @@ export default function DashboardPage() {
 
     return (
         <div className="min-h-screen" style={{ background: 'var(--bg-primary)' }}>
+            {/* Demo Mode Banner */}
+            <DemoBanner />
+
             {/* Header */}
             <header className="sticky top-0 z-40 glass-strong" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                 <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">

@@ -14,12 +14,14 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import ThemeToggle from '@/components/ThemeToggle';
+import DemoBanner from '@/components/DemoBanner';
+import { isDemoMode as checkDemoMode } from '@/lib/demoMode';
 
 export default function ChatRoomPage() {
     const params = useParams();
     const roomId = params.roomId as string;
     const router = useRouter();
-    const { user, token, isLoading: authLoading } = useAuth();
+    const { user, token, isLoading: authLoading, isDemoMode } = useAuth();
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [file, setFile] = useState<File | null>(null);
@@ -31,18 +33,18 @@ export default function ChatRoomPage() {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
     useEffect(() => {
-        if (!authLoading && !token) router.replace('/login');
-    }, [authLoading, token, router]);
+        if (!authLoading && !token && !isDemoMode) router.replace('/login');
+    }, [authLoading, token, isDemoMode, router]);
 
     // Fetch existing messages
     useEffect(() => {
-        if (!token || !roomId) return;
+        if ((!token && !isDemoMode) || !roomId) return;
         setIsLoadingMessages(true);
         roomService.getMessages(roomId)
             .then(data => setMessages(Array.isArray(data) ? data : []))
             .catch(() => { })
             .finally(() => setIsLoadingMessages(false));
-    }, [token, roomId]);
+    }, [token, isDemoMode, roomId]);
 
     // WebSocket handler
     const handleNewMessage = useCallback((msg: Message) => {
@@ -79,7 +81,19 @@ export default function ChatRoomPage() {
         setIsSending(true);
 
         try {
-            if (file) {
+            if (isDemoMode) {
+                // In demo mode, just append the message locally
+                const demoMsg: Message = {
+                    id: `demo-${Date.now()}`,
+                    sender: user.userName,
+                    content: input.trim(),
+                    timestamp: new Date().toISOString(),
+                    senderProfilePhoto: user.profilePhoto,
+                    attachmentFileName: null,
+                    attachmentData: null,
+                };
+                setMessages(prev => [...prev, demoMsg]);
+            } else if (file) {
                 // Use REST endpoint for file upload
                 const msg = await chatService.sendMessageWithFile(roomId, user.userName, input.trim(), file);
                 setMessages(prev => [...prev, msg]);
@@ -138,6 +152,9 @@ export default function ChatRoomPage() {
 
     return (
         <div className="h-screen flex flex-col" style={{ background: 'var(--bg-primary)' }}>
+            {/* Demo Mode Banner */}
+            <DemoBanner />
+
             {/* Header */}
             <header className="flex-shrink-0 glass-strong z-30" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                 <div className="px-4 sm:px-6 py-3 flex items-center justify-between">
@@ -158,9 +175,9 @@ export default function ChatRoomPage() {
                         <div>
                             <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{roomId}</h2>
                             <div className="flex items-center gap-1.5">
-                                <span className={`connection-dot ${connected ? 'connected' : 'disconnected'}`} />
-                                <span className="text-xs" style={{ color: connected ? 'var(--success)' : 'var(--error)' }}>
-                                    {connected ? 'Connected' : 'Reconnecting...'}
+                                <span className={`connection-dot ${isDemoMode ? 'connected' : connected ? 'connected' : 'disconnected'}`} />
+                                <span className="text-xs" style={{ color: isDemoMode ? 'var(--accent-sage)' : connected ? 'var(--success)' : 'var(--error)' }}>
+                                    {isDemoMode ? 'Demo Mode' : connected ? 'Connected' : 'Reconnecting...'}
                                 </span>
                             </div>
                         </div>

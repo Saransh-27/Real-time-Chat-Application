@@ -5,6 +5,7 @@ import { Client } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import type { Message } from '@/lib/types';
 import { API_BASE_URL } from '@/lib/api';
+import { isDemoMode } from '@/lib/demoMode';
 
 interface UseWebSocketOptions {
     roomId: string;
@@ -21,6 +22,12 @@ export function useWebSocket({ roomId, onMessage }: UseWebSocketOptions) {
     }, [onMessage]);
 
     const connect = useCallback(() => {
+        // Don't attempt WebSocket connection in demo mode
+        if (isDemoMode()) {
+            setConnected(false);
+            return;
+        }
+
         if (clientRef.current?.active) return;
 
         const client = new Client({
